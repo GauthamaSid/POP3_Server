@@ -23,7 +23,7 @@ A basic implementation of a POP3 (Post Office Protocol version 3) server in Pyth
     python pop3_server.py
     ```
 
-3. Connect to the server using a POP3 client (e.g., Outlook, Thunderbird) and configure the client with the server address (`localhost`) and port (`1100`).Or alternatively use telnet:  \n
+3. Connect to the server using a POP3 client (e.g., Outlook, Thunderbird) and configure the client with the server address (`localhost`) and port (`1100`).Or alternatively use telnet client on windows( remember to enable it in "Turn Windows features on or off"):  
 
     ```bash 
     telnet localhost 1100
@@ -38,11 +38,6 @@ A basic implementation of a POP3 (Post Office Protocol version 3) server in Pyth
 ## Dependencies
 
 - Python 3.x
-
-## Notes
-
-- This is a basic implementation and lacks advanced features and security measures.
-- Be cautious about using this in a production environment.
 
 ## License
 
