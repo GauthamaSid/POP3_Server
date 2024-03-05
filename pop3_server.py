@@ -82,24 +82,19 @@ class POP3Server:
             print(f"Accepted connection from {client_address}")
             client_socket.sendall(b'+OK POP3 server ready\r\n')
             buffer = b''
-            try:
-                while True:
-                    data = client_socket.recv(BUFFER_SIZE)
-                    if not data:
-                        break
-                    buffer += data
-                    lines = buffer.split(b'\r\n')
-                    buffer = lines.pop()
-                    for line in lines:
-                        command = line.decode().strip()
+            while True:
+                data = client_socket.recv(BUFFER_SIZE)
+                if not data:
+                    break
+                buffer += data
+                lines = buffer.split(b'\r\n')
+                buffer = lines.pop()
+                for line in lines:
+                    command = line.decode().strip()
                     if self.handle_command(command, client_socket, mailbox):
                         break
-            except ConnectionResetError:
-                print(f"Connection from {client_address} forcibly closed by the remote host")
-            except Exception as e:
-                print(f"Error handling connection from {client_address}: {e}")
-            finally:
-                print(f"Connection from {client_address} closed")
+
+        print(f"Connection from {client_address} closed")
 
     def handle_list_command(self, client_socket, mailbox, message_number=None):
         if message_number is not None:
