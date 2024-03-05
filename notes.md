@@ -4,7 +4,7 @@
 - add all 3 states
 - authentication wiht ssl
 -implement storage properly -- DONE
-- graceful exit
+- graceful exit -- DONE
 - - 
  The AUTHORIZATION State .....................................    
       QUIT Command ................................................    y
