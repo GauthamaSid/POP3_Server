@@ -121,7 +121,10 @@ class POP3Server:
 
                     for line in lines:
                         command = line.decode().strip()
-
+                        if command.startswith("QUIT"):
+                            client_socket.sendall(b'+OK dewey POP3 server signing off\r\n')
+                            client_socket.close()
+                            return True
                         if command.startswith("USER"):
                             parts = command.split()
                             if len(parts) == 2:
