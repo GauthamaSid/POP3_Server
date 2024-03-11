@@ -47,7 +47,15 @@ if __name__ == "__main__":
             user = input("Enter the username: ")
             sender = input("Enter the sender's email address: ")
             subject = input("Enter the email subject: ")
-            body = input("Enter the email body: ")
+            print("Enter the email body (press CTRL+D on a new line to finish):")
+            body_lines = []
+            while True:
+                try:
+                    line = input()
+                except EOFError:  # CTRL+D on Unix, CTRL+Z on Windows
+                    break
+                body_lines.append(line)
+            body = '\n'.join(body_lines)
             add_email(user, sender, subject, body)
         elif choice == "2":
             break

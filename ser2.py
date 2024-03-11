@@ -2,7 +2,6 @@ import socket
 import threading
 import pickle
 import ssl
-import msvcrt
 
 SERVER_ADDRESS = ('localhost', 995)
 BUFFER_SIZE = 1024
@@ -83,20 +82,7 @@ class POP3Server:
         self.ssl_context.load_cert_chain(certfile, keyfile)
         self.mailboxes = {}
 
-        self.stop_event = threading.Event()
-        self.input_thread = threading.Thread(target=self.listen_for_input)
-        self.input_thread.start()
-
-    def listen_for_input(self):
-        while True:
-            try:
-                input_ = input()
-                if input_.strip().lower() == "exit":
-                    self.stop_event.set()
-                    break
-            except KeyboardInterrupt:
-                self.stop_event.set()
-                break
+        self.terminate_event = threading.Event()
 
     def load_mailbox(self, user):
         try:
@@ -118,6 +104,11 @@ class POP3Server:
         with client_socket:
             print(f"Accepted connection from {client_address}")
             try:
+                if self.terminate_event.is_set():
+                    # Gracefully handle new connections during termination
+                    client_socket.sendall(b'-ERR Server shutting down\r\n')
+                    return
+
                 client_socket.sendall(b'+OK POP3 server ready\r\n')
                 buffer = b''
                 authenticated = False
@@ -134,7 +125,7 @@ class POP3Server:
 
                     for line in lines:
                         command = line.decode().strip()
-                        if command.startswith("QUIT"):
+                        if command.startswith("QUIT") and (authenticated == False):
                             client_socket.sendall(b'+OK dewey POP3 server signing off\r\n')
                             client_socket.close()
                             return True
@@ -166,8 +157,8 @@ class POP3Server:
                         else:
                             client_socket.sendall(b'-ERR Authentication required\r\n')
             except (socket.error, ConnectionResetError) as e:
-                # Handle client disconnection 
-                print(f"Client disconnected : {e}")
+                # Handle client disconnection
+                print(f"Client disconnected")
             except Exception as e:
                 print(f"Error in client connection: {e}")
 
@@ -176,7 +167,7 @@ class POP3Server:
     def handle_list_command(self, client_socket, mailbox, message_number=None):
         if message_number is not None:
             email = mailbox.get_email(message_number)
-            if email:
+            if email and not email.to_del:
                 response = f'+OK {message_number} {len(email.body.encode())}\r\n'
                 client_socket.sendall(response.encode())
             else:
@@ -220,15 +211,36 @@ class POP3Server:
 
     def throw_error(self, client_socket):
         client_socket.sendall(b'-ERR Unknown command\r\n')
+    
+    def handle_top_command(self, message_index, lines, client_socket, mailbox):
+        email = mailbox.get_email(message_index)
+        if email:
+            response = f'+OK Top of message follows\r\n'
+            response += f"From: {email.sender}\r\nSubject: {email.subject}\r\n\r\n"
+            response += '\r\n'.join(email.body.split('\n')[:lines]) + '\r\n.\r\n'
+            client_socket.sendall(response.encode('utf-8'))
+        else:
+            client_socket.sendall(b'-ERR No such message\r\n')
+        return False
 
     def handle_command(self, command, client_socket, user, mailbox):
+        
         if command.startswith("QUIT"):
             mailbox.delete_marked_emails()
             self.save_mailbox(user, mailbox)
             client_socket.sendall(b'+OK Bye\r\n')
             return True
-        elif command.startswith("STAT"):
+        
+        if command.startswith("STAT"):
             client_socket.sendall(f'+OK {mailbox.get_email_count()} {mailbox.get_email_size()}\r\n'.encode('utf-8'))
+        elif command.startswith("TOP"):
+            parts = command.split()
+            if len(parts) == 3:
+                message_index = int(parts[1])
+                lines = int(parts[2])
+                return self.handle_top_command(message_index, lines, client_socket, mailbox)
+            else:
+                client_socket.sendall(b'-ERR Invalid TOP command\r\n')
         elif command.startswith("LIST"):
             parts = command.split()
             if len(parts) == 2:
@@ -264,22 +276,24 @@ class POP3Server:
         print(f"POP3 server listening on {SERVER_ADDRESS[0]}:{SERVER_ADDRESS[1]}")
         self.server_socket.listen()
 
-        while not self.stop_event.is_set():
+        while not self.terminate_event.is_set():
             try:
                 client_socket, client_address = self.server_socket.accept()
                 connection_thread = threading.Thread(target=self.handle_client, args=(client_socket, client_address))
                 connection_thread.start()
                 self.connections.append(connection_thread)
             except KeyboardInterrupt:
-                pass
+                self.terminate_event.set()
+                break
 
         self.stop()
 
     def stop(self):
         print("Stopping POP3 server...")
-        self.is_running = False
+        self.terminate_event.set()  # Set the termination event
         self.server_socket.close()
 
+        # Wait for all active client connections to close
         for connection_thread in self.connections:
             connection_thread.join()
 

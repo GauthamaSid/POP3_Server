@@ -23,3 +23,5 @@
 # client
 
 run,mailbox
+
+scan listing implementation with dele
