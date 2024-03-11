@@ -2,6 +2,7 @@ import socket
 import threading
 import pickle
 import ssl
+import signal
 
 SERVER_ADDRESS = ('localhost', 995)
 BUFFER_SIZE = 1024
@@ -73,12 +74,19 @@ class POP3Server:
          self.server_socket.bind(SERVER_ADDRESS)
         except Exception as e:
             print(f"Error binding to {SERVER_ADDRESS}: {e}")
-            return
+            raise
         self.server_socket.listen()
         self.is_running = True
         self.connections = []
         self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.ssl_context.load_cert_chain(certfile, keyfile)
+
+        # Register a signal handler for graceful termination
+        signal.signal(signal.SIGINT, self.handle_interrupt)
+    
+    def handle_interrupt(self, signum, frame):
+        print("Received interrupt signal. Stopping POP3 server...")
+        self.stop()
 
     def load_mailbox(self):
         try:
@@ -97,44 +105,55 @@ class POP3Server:
     def handle_client(self, client_socket, client_address, mailbox):
         with client_socket:
             print(f"Accepted connection from {client_address}")
-            client_socket.sendall(b'+OK POP3 server ready\r\n')
-            buffer = b''
-            authenticated = False
-            while True:
-                data = client_socket.recv(BUFFER_SIZE)
-                if not data:
-                    break
-                buffer += data
-                lines = buffer.split(b'\r\n')
-                buffer = lines.pop()
-                for line in lines:
-                    command = line.decode().strip()
-                    if command.startswith("USER"):
-                        parts = command.split()
-                        if len(parts) == 2:
-                            username = parts[1]
-                            client_socket.sendall(b'+OK\r\n')
-                        else:
-                            client_socket.sendall(b'-ERR Missing username\r\n')
-                    elif command.startswith("PASS"):
-                        parts = command.split()
-                        if len(parts) == 2:
-                            password = parts[1]
-                
-                            if self.authenticate(username, password):
-                                authenticated = True
-                                client_socket.sendall(b'+OK User authenticated\r\n')
-                            else:
-                                client_socket.sendall(b'-ERR Invalid username or password\r\n')
-                        else:
-                            client_socket.sendall(b'-ERR Missing password\r\n')
-                    elif authenticated:
-                        if self.handle_command(command, client_socket, mailbox):
-                            break
-                    else:
-                        client_socket.sendall(b'-ERR Authentication required\r\n')
+            try:
+                client_socket.sendall(b'+OK POP3 server ready\r\n')
+                buffer = b''
+                authenticated = False
 
-        print(f"Connection from {client_address} closed")
+                while True:
+                    data = client_socket.recv(BUFFER_SIZE)
+                    if not data:
+                        break
+
+                    buffer += data
+                    lines = buffer.split(b'\r\n')
+                    buffer = lines.pop()
+
+                    for line in lines:
+                        command = line.decode().strip()
+
+                        if command.startswith("USER"):
+                            parts = command.split()
+                            if len(parts) == 2:
+                                username = parts[1]
+                                client_socket.sendall(b'+OK\r\n')
+                            else:
+                                client_socket.sendall(b'-ERR Missing username\r\n')
+                        elif command.startswith("PASS"):
+                            parts = command.split()
+                            if len(parts) == 2:
+                                password = parts[1]
+
+                                if self.authenticate(username, password):
+                                    authenticated = True
+                                    client_socket.sendall(b'+OK User authenticated\r\n')
+                                else:
+                                    client_socket.sendall(b'-ERR Invalid username or password\r\n')
+                            else:
+                                client_socket.sendall(b'-ERR Missing password\r\n')
+                        elif authenticated:
+                            if self.handle_command(command, client_socket, mailbox):
+                                client_socket.close()
+                                break
+                        else:
+                            client_socket.sendall(b'-ERR Authentication required\r\n')
+            except (socket.error, ConnectionResetError) as e:
+                # Handle client disconnection 
+                print(f"Client disconnected")
+            except Exception as e:
+                print(f"Error in client connection: {e}")
+
+            print(f"Connection from {client_address} closed")
 
     def handle_list_command(self, client_socket, mailbox, message_number=None):
         if message_number is not None:
@@ -185,9 +204,9 @@ class POP3Server:
 
     def handle_command(self, command, client_socket, mailbox):
         if command.startswith("QUIT"):
-            client_socket.sendall(b'+OK Bye\r\n')
             mailbox.delete_marked_emails()
             self.save_mailbox(mailbox)
+            client_socket.sendall(b'+OK Bye\r\n')
             return True
         elif command.startswith("STAT"):
             client_socket.sendall(f'+OK {mailbox.get_email_count()} {mailbox.get_email_size()}\r\n'.encode('utf-8'))

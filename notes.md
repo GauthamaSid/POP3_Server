@@ -2,9 +2,10 @@
 - scan listing in LIST -- DONE
 - add error handling
 - add all 3 states
-- authentication wiht ssl
--implement storage properly -- DONE
-- graceful exit -- DONE
+- authentication wiht ssl -- DONE
+-implement storage properly --
+- graceful exit -- 
+- CLIENT!!!!
 - - 
  The AUTHORIZATION State .....................................    
       QUIT Command ................................................    y
