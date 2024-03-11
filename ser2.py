@@ -2,7 +2,7 @@ import socket
 import threading
 import pickle
 import ssl
-import signal
+import msvcrt
 
 SERVER_ADDRESS = ('localhost', 995)
 BUFFER_SIZE = 1024
@@ -23,7 +23,8 @@ class Email:
         self.to_del = to_del
 
 class Mailbox:
-    def __init__(self):
+    def __init__(self, user):
+        self.user = user
         self.emails = []
 
     def add_email(self, sender, subject, body):
@@ -71,7 +72,7 @@ class POP3Server:
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-         self.server_socket.bind(SERVER_ADDRESS)
+            self.server_socket.bind(SERVER_ADDRESS)
         except Exception as e:
             print(f"Error binding to {SERVER_ADDRESS}: {e}")
             raise
@@ -80,35 +81,47 @@ class POP3Server:
         self.connections = []
         self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.ssl_context.load_cert_chain(certfile, keyfile)
+        self.mailboxes = {}
 
-        # Register a signal handler for graceful termination
-        signal.signal(signal.SIGINT, self.handle_interrupt)
-    
-    def handle_interrupt(self, signum, frame):
-        print("Received interrupt signal. Stopping POP3 server...")
-        self.stop()
+        self.stop_event = threading.Event()
+        self.input_thread = threading.Thread(target=self.listen_for_input)
+        self.input_thread.start()
 
-    def load_mailbox(self):
+    def listen_for_input(self):
+        while True:
+            try:
+                input_ = input()
+                if input_.strip().lower() == "exit":
+                    self.stop_event.set()
+                    break
+            except KeyboardInterrupt:
+                self.stop_event.set()
+                break
+
+    def load_mailbox(self, user):
         try:
-            with open(MAILBOX_FILE, 'rb') as file:
+            with open(f'{MAILBOX_FILE}_{user}', 'rb') as file:
                 return pickle.load(file)
         except FileNotFoundError:
-            return Mailbox()
+            mailbox = Mailbox(user)
+            self.mailboxes[user] = mailbox
+            return mailbox
 
-    def save_mailbox(self, mailbox):
-        with open(MAILBOX_FILE, 'wb') as file:
+    def save_mailbox(self, user, mailbox):
+        with open(f'{MAILBOX_FILE}_{user}', 'wb') as file:
             pickle.dump(mailbox, file)
 
     def authenticate(self, username, password):
         return USERS.get(username) == password
 
-    def handle_client(self, client_socket, client_address, mailbox):
+    def handle_client(self, client_socket, client_address):
         with client_socket:
             print(f"Accepted connection from {client_address}")
             try:
                 client_socket.sendall(b'+OK POP3 server ready\r\n')
                 buffer = b''
                 authenticated = False
+                user = None
 
                 while True:
                     data = client_socket.recv(BUFFER_SIZE)
@@ -128,7 +141,7 @@ class POP3Server:
                         if command.startswith("USER"):
                             parts = command.split()
                             if len(parts) == 2:
-                                username = parts[1]
+                                user = parts[1]
                                 client_socket.sendall(b'+OK\r\n')
                             else:
                                 client_socket.sendall(b'-ERR Missing username\r\n')
@@ -137,22 +150,24 @@ class POP3Server:
                             if len(parts) == 2:
                                 password = parts[1]
 
-                                if self.authenticate(username, password):
+                                if self.authenticate(user, password):
                                     authenticated = True
+                                    mailbox = self.load_mailbox(user)
                                     client_socket.sendall(b'+OK User authenticated\r\n')
                                 else:
                                     client_socket.sendall(b'-ERR Invalid username or password\r\n')
                             else:
                                 client_socket.sendall(b'-ERR Missing password\r\n')
                         elif authenticated:
-                            if self.handle_command(command, client_socket, mailbox):
+                            if self.handle_command(command, client_socket, user, mailbox):
+                                self.save_mailbox(user, mailbox)
                                 client_socket.close()
                                 break
                         else:
                             client_socket.sendall(b'-ERR Authentication required\r\n')
             except (socket.error, ConnectionResetError) as e:
                 # Handle client disconnection 
-                print(f"Client disconnected")
+                print(f"Client disconnected : {e}")
             except Exception as e:
                 print(f"Error in client connection: {e}")
 
@@ -184,11 +199,12 @@ class POP3Server:
             client_socket.sendall(b'-ERR No such message\r\n')
         return False
 
-    def handle_rset_command(self, client_socket, mailbox):
+    def handle_rset_command(self, client_socket, user, mailbox):
         for email in mailbox.emails:
             email.to_del = 0
         response = f'+OK maildrop has {mailbox.get_email_count()} messages ({mailbox.get_email_size()} octets)\r\n'
         client_socket.sendall(response.encode())
+        self.save_mailbox(user, mailbox)
         return False
 
     def handle_dele_command(self, message_index, client_socket, mailbox):
@@ -205,10 +221,10 @@ class POP3Server:
     def throw_error(self, client_socket):
         client_socket.sendall(b'-ERR Unknown command\r\n')
 
-    def handle_command(self, command, client_socket, mailbox):
+    def handle_command(self, command, client_socket, user, mailbox):
         if command.startswith("QUIT"):
             mailbox.delete_marked_emails()
-            self.save_mailbox(mailbox)
+            self.save_mailbox(user, mailbox)
             client_socket.sendall(b'+OK Bye\r\n')
             return True
         elif command.startswith("STAT"):
@@ -239,27 +255,25 @@ class POP3Server:
         elif command.startswith("NOOP"):
             client_socket.sendall(b'+OK')
         elif command.startswith("RSET"):
-            return self.handle_rset_command(client_socket, mailbox)
+            return self.handle_rset_command(client_socket, user, mailbox)
         else:
             self.throw_error(client_socket)
         return False
 
     def run(self):
         print(f"POP3 server listening on {SERVER_ADDRESS[0]}:{SERVER_ADDRESS[1]}")
-        self.server_socket.listen()  # Listen for incoming connections
-        mailbox = self.load_mailbox()
+        self.server_socket.listen()
 
-        while self.is_running:
+        while not self.stop_event.is_set():
             try:
                 client_socket, client_address = self.server_socket.accept()
-                connection_thread = threading.Thread(target=self.handle_client, args=(client_socket, client_address, mailbox))
+                connection_thread = threading.Thread(target=self.handle_client, args=(client_socket, client_address))
                 connection_thread.start()
                 self.connections.append(connection_thread)
             except KeyboardInterrupt:
-                self.stop()
+                pass
 
-        self.save_mailbox(mailbox)
-
+        self.stop()
 
     def stop(self):
         print("Stopping POP3 server...")
@@ -268,6 +282,8 @@ class POP3Server:
 
         for connection_thread in self.connections:
             connection_thread.join()
+
+        print("POP3 server stopped.")
 
 if __name__ == "__main__":
     # Replace with the paths to your server certificate and private key

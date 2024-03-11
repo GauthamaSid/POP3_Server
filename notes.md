@@ -1,10 +1,10 @@
 # Server
 - scan listing in LIST -- DONE
-- add error handling
-- add all 3 states
+- add error handling -- DONE
+- add all 3 states -- DONE
 - authentication wiht ssl -- DONE
--implement storage properly --
-- graceful exit -- 
+-implement storage properly -- DONE
+- graceful exit -- for server(cant ctrl c and quit is not proper) -- NO
 - CLIENT!!!!
 - - 
  The AUTHORIZATION State .....................................    
@@ -17,7 +17,9 @@
       NOOP Command ................................................    y
       RSET Command ................................................    y
    6. The UPDATE State ............................................   
-      QUIT Command ................................................   y(needs 3 states)
+      QUIT Command ................................................   y
 
 
 # client
+
+run,mailbox

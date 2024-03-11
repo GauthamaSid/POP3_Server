@@ -1,23 +1,55 @@
-# add_messages.py
-
 import pickle
-from pop3_server import Mailbox, Email  # Import the Mailbox and Email classes from your existing POP3 server script
+from datetime import datetime
 
-def add_messages():
-    # Create or load the mailbox
+MAILBOX_FILE = 'mailbox.pkl'
+
+class Email:
+    def __init__(self, sender, subject, body, to_del):
+        self.sender = sender
+        self.subject = subject
+        self.body = body
+        self.to_del = to_del
+
+class Mailbox:
+    def __init__(self, user):
+        self.user = user
+        self.emails = []
+
+    def add_email(self, sender, subject, body):
+        email = Email(sender, subject, body, 0)
+        self.emails.append(email)
+
+def load_mailbox(user):
     try:
-        with open('mailbox.pkl', 'rb') as file:
-            mailbox = pickle.load(file)
+        with open(f'{MAILBOX_FILE}_{user}', 'rb') as file:
+            return pickle.load(file)
     except FileNotFoundError:
-        mailbox = Mailbox()
+        mailbox = Mailbox(user)
+        return mailbox
 
-    # Add new messages
-    mailbox.add_email("new_user@example.com", "New Message 1", "This is a new message.")
-    mailbox.add_email("another_user@example.com", "New Message 2", "This is another new message.")
-
-    # Save the updated mailbox
-    with open('mailbox.pkl', 'wb') as file:
+def save_mailbox(user, mailbox):
+    with open(f'{MAILBOX_FILE}_{user}', 'wb') as file:
         pickle.dump(mailbox, file)
 
+def add_email(user, sender, subject, body):
+    mailbox = load_mailbox(user)
+    mailbox.add_email(sender, subject, body)
+    save_mailbox(user, mailbox)
+    print(f"Email added to {user}'s mailbox.")
+
 if __name__ == "__main__":
-    add_messages()
+    while True:
+        print("1. Add email")
+        print("2. Exit")
+        choice = input("Enter your choice: ")
+
+        if choice == "1":
+            user = input("Enter the username: ")
+            sender = input("Enter the sender's email address: ")
+            subject = input("Enter the email subject: ")
+            body = input("Enter the email body: ")
+            add_email(user, sender, subject, body)
+        elif choice == "2":
+            break
+        else:
+            print("Invalid choice. Please try again.")
