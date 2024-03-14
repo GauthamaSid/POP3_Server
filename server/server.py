@@ -127,7 +127,6 @@ class POP3Server:
                         command = line.decode().strip()
                         if command.startswith("QUIT") and (authenticated == False):
                             client_socket.sendall(b'+OK dewey POP3 server signing off\r\n')
-                            client_socket.close()
                             return True
                         if command.startswith("USER"):
                             parts = command.split()
@@ -158,7 +157,7 @@ class POP3Server:
                             client_socket.sendall(b'-ERR Authentication required\r\n')
             except (socket.error, ConnectionResetError) as e:
                 # Handle client disconnection
-                print(f"Client disconnected")
+                print(f"Client disconnected: {e}")
             except Exception as e:
                 print(f"Error in client connection: {e}")
 
