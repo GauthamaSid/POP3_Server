@@ -8,6 +8,13 @@ CERT_DIR = r'cert.pem'
 # KEY_DIR = r'cert\\key.pem'
 IP_ADDRESS = 'localhost'
 
+port = input("Enter the port number to listen on (default is 995): ")
+try:
+    port = int(port)
+except ValueError:
+    print("Invalid port number. Using default port 8000.")
+    port = 8000
+
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 context.load_verify_locations(CERT_DIR)
 client_socket = None
@@ -44,8 +51,8 @@ def receive_data():
 
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 secure_socket = context.wrap_socket(client_socket, server_hostname=IP_ADDRESS)
-secure_socket.connect((IP_ADDRESS, 8000))
-print('Connected to SSL server')
+secure_socket.connect((IP_ADDRESS, port))
+print(f'Connected to SSL server using port{port}')
 
 receive_thread = threading.Thread(target=receive_data)
 receive_thread.start()
