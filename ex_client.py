@@ -16,14 +16,25 @@ secure_socket = context.wrap_socket(client_socket, server_hostname=ip_address)
 secure_socket.connect((ip_address, 8000))
 
 print('Connected to SSL server')
+buffer = b''
+authenticated = False
+user = None
 
 while True:
-    data = input('Enter message: ').encode()
-    if not data:
-        break
-    secure_socket.sendall(data)
-
     response = secure_socket.recv(1024)
-    print(f'Received response: {response.decode()}')
+    if not response:
+        break
 
+    buffer += response
+    lines = buffer.split(b'\r\n')
+    buffer = lines.pop()
+    
+    print(f'Received response: {response.decode()}')
+    print(f'lines: {lines}')
+    for line in lines:
+        command = line.decode().strip()
+        if command.startswith("+OK"):
+            data = (input('Enter response: ')+'\r\n').encode() 
+            secure_socket.sendall(data)
+ 
 secure_socket.close()

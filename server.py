@@ -300,8 +300,8 @@ class POP3Server:
 
 if __name__ == "__main__":
     # Replace with the paths to your server certificate and private key
-    certfile = r'server.crt'
-    keyfile = r'server.key'
+    certfile = r'cert.pem'
+    keyfile = r'key.pem'
 
     pop3_server = POP3Server(certfile, keyfile)
     try:
