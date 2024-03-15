@@ -237,7 +237,7 @@ def handle_client(client_socket, client_address):
         for line in lines:
             command = line.decode().strip()
             if command.startswith("QUIT") and not authenticated:
-                secure_socket.sendall(b'+OK dewey POP3 server signing off\r\n')     
+                secure_socket.sendall(b'+OK dewey POP3 server signing off\r\n')
                 break
             elif command.startswith("QUIT") and authenticated:
                 mailbox = load_mailbox(user)
@@ -286,7 +286,6 @@ def handle_client(client_socket, client_address):
                 handle_rset_command(secure_socket, user)
             else:
                 secure_socket.sendall(b'-ERR\r\n')
-        break   
     secure_socket.close()
     client_socket.close()
     print(f'Connection from {client_address} closed.')
