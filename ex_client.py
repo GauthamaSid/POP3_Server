@@ -33,8 +33,8 @@ while True:
     print(f'lines: {lines}')
     for line in lines:
         command = line.decode().strip()
-        if command.startswith("+OK"):
-            data = (input('Enter response: ')+'\r\n').encode() 
-            secure_socket.sendall(data)
+
+        data = (input('Enter response: ')+'\r\n').encode() 
+        secure_socket.sendall(data)
  
 secure_socket.close()
