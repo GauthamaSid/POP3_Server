@@ -1,3 +1,5 @@
+from email import message
+from operator import le
 import ssl
 import socket
 import signal
@@ -8,18 +10,20 @@ import pickle
 CERT_DIR = r'cert.pem'
 KEY_DIR = r'key.pem'
 IP_ADDRESS = 'localhost'
-MAILBOX_FILE = 'mailbox.pkl'  
+MAILBOX_FILE = 'mailbox.pkl'
 
 USERS = {
     'user1': 'password1',
     'user2': 'password2',
 }
-#region ssl config
+
+# region ssl config
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.load_cert_chain(CERT_DIR, KEY_DIR)
 server_socket = None
 client_sockets = []
-#endregion
+# endregion
+
 
 def handle_user_command(command, secure_socket, user):
     parts = command.split()
@@ -47,16 +51,88 @@ def handle_pass_command(command, secure_socket, user):
         secure_socket.sendall(b'-ERR User not found\r\n')
     return False
 
+ 
+def handle_stat_command(secure_socket, user):
+    mailbox = load_mailbox(user)
+    email_count = mailbox.get_email_count()
+    email_size = mailbox.get_email_size()
+    response = f'+OK {email_count} {email_size}\r\n'
+    secure_socket.sendall(response.encode())
 
 
+def handle_noop_command(secure_socket, user):
+    secure_socket.sendall(b'+OK\r\n')
+
+
+def handle_retr_command(secure_socket, user, index):
+    mailbox = load_mailbox(user)
+    email = mailbox.get_email(index)
+    if email:
+        header = f"From: {email.sender}\r\nSubject: {email.subject}\r\n\r\n"
+        response = f"+OK {len(email.body.encode())} octets\r\n{header}{email.body}\r\n.\r\n"
+        secure_socket.sendall(response.encode())
+    else:
+        secure_socket.sendall(b"-ERR no such message\r\n")
+
+def handle_dele_command(secure_socket, user, index):
+    mailbox = load_mailbox(user)
+    if mailbox.delete_email(index):
+        save_mailbox(mailbox, user)
+        secure_socket.sendall(f"+OK message {index} deleted\r\n".encode())
+    else:
+        secure_socket.sendall(b"-ERR no such message\r\n")
+
+def save_mailbox(mailbox, user):
+    with open(f'{MAILBOX_FILE}_{user}', 'wb') as file:
+        pickle.dump(mailbox, file)
+
+def handle_list_command(secure_socket, user, arg=None):
+    mailbox = load_mailbox(user)
+    email_list = mailbox.get_email_list()
+    if not arg:
+        if not email_list:
+            secure_socket.sendall(b'+OK 0 messages\r\n')
+        else:
+            response = b'+OK %d messages (%d octets)\r\n' % (len(email_list), sum(size for _, size in email_list))
+            for index, size in email_list:
+                response += b'%d %d\r\n' % (index, size)
+            response += b'.\r\n'
+            secure_socket.sendall(response)
+    else:
+        try:
+            index = int(arg)
+            email = mailbox.get_email(index)
+            if email and not email.to_del:
+                body_size = len(email.body.encode())
+                secure_socket.sendall(b'+OK %d %d\r\n' % (index, body_size))
+            else:
+                secure_socket.sendall(b'-ERR no such message\r\n')
+        except ValueError:
+            secure_socket.sendall(b'-ERR invalid message number\r\n')
+
+def handle_rset_command(secure_socket, user):
+    mailbox = load_mailbox(user)
+    mailbox.reset_deletion_markers()
+    save_mailbox(mailbox, user)
+    email_count = mailbox.get_email_count()
+    email_size = mailbox.get_email_size()
+    response = f"+OK maildrop has {email_count} messages ({email_size} octets)\r\n"
+    secure_socket.sendall(response.encode())
+
+#region graceful exit
 def graceful_exit(signal, frame):
     print('Shutting down server...')
     for client_socket in client_sockets:
         client_socket.close()
     server_socket.close()
     sys.exit(0)
+    
+signal.signal(signal.SIGINT, graceful_exit)
+signal.signal(signal.SIGTERM, graceful_exit)
 
-#region mailbox and email
+#endregion
+
+# region mailbox and email
 
 class Email:
     def __init__(self, sender, subject, body, to_del):
@@ -94,7 +170,7 @@ class Mailbox:
         return total_size
 
     def get_email_list(self):
-        email_list = [(i + 1, len(email.body.encode())) for i, email in enumerate(self.emails)]
+        email_list = [(i + 1, len(email.body.encode())) for i, email in enumerate(self.emails) if not email.to_del]
         return email_list
 
     def get_email(self, index):
@@ -106,13 +182,34 @@ class Mailbox:
     def delete_email(self, index):
         if 1 <= index <= len(self.emails):
             self.emails[index - 1].to_del = 1
+        else:
+            return False
+        return True
+    
+    def reset_deletion_markers(self):
+        for email in self.emails:
+            email.to_del = 0
 
+   
     def delete_marked_emails(self):
         self.emails = [email for email in self.emails if not email.to_del]
 
-#endregion
-signal.signal(signal.SIGINT, graceful_exit)
-signal.signal(signal.SIGTERM, graceful_exit)
+# endregion
+ 
+def remove_deleted_emails(mailbox):
+        mailbox.emails = [email for email in mailbox.emails if not email.to_del]
+    
+
+
+def load_mailbox(user):
+    try:
+        with open(f'{MAILBOX_FILE}_{user}', 'rb') as file:
+            mailbox = pickle.load(file)
+    except FileNotFoundError:
+        mailbox = Mailbox(user)  # Initialize a new Mailbox instance
+        with open(f'{MAILBOX_FILE}_{user}', 'wb') as file:
+            pickle.dump(mailbox, file)  # Save the new mailbox instance to a file
+    return mailbox
 
 def handle_client(client_socket, client_address):
     print(f'New connection from {client_address}')
@@ -132,35 +229,65 @@ def handle_client(client_socket, client_address):
         print(f'lines: {lines} , data {data}')
         for line in lines:
             command = line.decode().strip()
-            if command.startswith("QUIT"):
-                secure_socket.sendall(b'+OK dewey POP3 server signing off\r\n')
+            if command.startswith("QUIT") and not authenticated:
+                secure_socket.sendall(b'+OK dewe    y POP3 server signing off\r\n')
+                break
+            elif command.startswith("QUIT") and authenticated:
+                mailbox = load_mailbox(user)
+                remove_deleted_emails(mailbox)
+                save_mailbox(mailbox, user)
+                secure_socket.sendall(b'+OK dewey POP3 server signing off(maildrop empty)\r\n')
                 break
             elif command.startswith("USER"):
                 user = handle_user_command(command, secure_socket, user)
             elif command.startswith("PASS"):
                 authenticated = handle_pass_command(command, secure_socket, user)
             elif command.startswith("STAT"):
-                if authenticated:
-                    secure_socket.sendall(b'+OK will implement STAT\r\n')
-                else:
-                    secure_socket.sendall(b'-ERR Authentication required\r\n')
+                handle_stat_command(secure_socket, user)
             elif command.startswith("NOOP"):
-                if authenticated:
-                    secure_socket.sendall(b'+OK')
+                handle_noop_command(secure_socket, user)
+            elif command.startswith("LIST"):
+                parts = command.split()
+                if len(parts) == 1:
+                    handle_list_command(secure_socket, user)
+                elif len(parts) == 2:
+                    handle_list_command(secure_socket, user, parts[1])
+            
+            elif command.startswith("RETR"):
+                parts = command.split()
+                if len(parts) == 2:
+                    try:
+                        index = int(parts[1])
+                        handle_retr_command(secure_socket, user, index)
+                    except ValueError:
+                        secure_socket.sendall(b"-ERR invalid message number\r\n")
                 else:
-                    secure_socket.sendall(b'-ERR Authentication required\r\n')
+                    secure_socket.sendall(b"-ERR\r\n")
+            
+            elif command.startswith("DELE"):
+                parts = command.split()
+                if len(parts) == 2:
+                    try:
+                        index = int(parts[1])
+                        handle_dele_command(secure_socket, user, index)
+                    except ValueError:
+                        secure_socket.sendall(b"-ERR invalid message number\r\n")
+                else:
+                    secure_socket.sendall(b"-ERR\r\n")
+            
+            elif command.startswith("RSET"):
+                handle_rset_command(secure_socket, user)
             else:
                 secure_socket.sendall(b'-ERR\r\n')
     secure_socket.close()
     client_socket.close()
     print(f'Connection from {client_address} closed.')
-
-#region sll connection
+# region sll connection
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.bind((IP_ADDRESS, 8000))
 server_socket.listen(5)
 print('SSL server started on localhost:8000')
-#endregion
+# endregion
 while True:
     client_socket, client_address = server_socket.accept()
     client_thread = threading.Thread(target=handle_client, args=(client_socket, client_address))
