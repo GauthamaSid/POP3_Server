@@ -33,9 +33,8 @@ openssl req -x509 -newkey rsa:4096 -nodes -out cert.pem -keyout key.pem -days 36
 
 - graceful error handling client
 - client not connet handling
-- add top
+- quit
 - maybe color
-- multi client server - allow custom input for server,client
 
 ## testing
 

@@ -1,5 +1,3 @@
-from email import message
-from operator import le
 import ssl
 import socket
 import signal
@@ -9,8 +7,17 @@ import pickle
 
 CERT_DIR = r'cert.pem'
 KEY_DIR = r'key.pem'
-IP_ADDRESS = 'localhost'
+IP_ADDRESS = '192.168.94.59'
 MAILBOX_FILE = 'mailbox.pkl'
+
+port = input("Enter the port number to listen on (default is 995): ")
+try:
+    port = int(port)
+except ValueError:
+    print("Invalid port number. Using default port 8000.")
+    port = 8000
+
+
 
 USERS = {
     'user1': 'password1',
@@ -284,9 +291,9 @@ def handle_client(client_socket, client_address):
     print(f'Connection from {client_address} closed.')
 # region sll connection
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server_socket.bind((IP_ADDRESS, 8000))
+server_socket.bind((IP_ADDRESS, port))
 server_socket.listen(5)
-print('SSL server started on localhost:8000')
+print(f'SSL server started on localhost:{port}')
 # endregion
 while True:
     client_socket, client_address = server_socket.accept()
