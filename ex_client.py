@@ -1,9 +1,13 @@
 import ssl
 import socket
 
-ip_address = '10.0.0.1'
+CERT_DIR = r'cert.pem'
+# KEY_DIR = r'cert\key.pem'
+ip_address = 'localhost'
+
+
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-context.load_verify_locations('cert.pem')
+context.load_verify_locations(CERT_DIR)
 
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 

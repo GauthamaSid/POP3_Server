@@ -1,15 +1,19 @@
 import ssl
 import socket
+import pickle
+import ssl
 
-ip_address = '10.0.0.1'
+CERT_DIR = r'cert.pem'
+KEY_DIR = r'key.pem'
+IP_ADDRESS = 'localhost'
 
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-context.load_cert_chain('cert.pem', 'key.pem')
+context.load_cert_chain(CERT_DIR, KEY_DIR)
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
  # replace 'localhost' with the actual IP address/hostname of server
-server_socket.bind((ip_address, 8000))
+server_socket.bind((IP_ADDRESS, 8000))
 server_socket.listen(5)
 
 print('SSL server started on localhost:8000')
